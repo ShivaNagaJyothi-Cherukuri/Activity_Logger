@@ -1,19 +1,26 @@
 import tkinter as tk
-from tkinter import simpledialog
 from tkinter import PhotoImage
 import time
 from datetime import datetime, timedelta
 from playsound import playsound
-import sqlite3
+import mysql.connector
 import threading
 
 # database setup
 def db_setup():
-    conn = sqlite3.connect('data/activity_logs.db')
+    conn = mysql.connector.connect(
+        host='127.0.0.1',
+        user='root',
+        password='qaz123',
+        database='activity_logger'
+    )
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS activity_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            Log_day VARCHAR(20),
+            Log_date DATE,
+            Log_hour VARCHAR(10),
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             activity TEXT
         )
@@ -23,7 +30,15 @@ def db_setup():
 
 # logging the activity to the Database
 def log_activity(activity):
-    cursor.execute('INSERT INTO activity_logs (activity) VALUES (?)', (activity,))
+    now = datetime.now()
+    Log_day = now.strftime('%A')
+    Log_date = now.strftime('%Y-%m-%d')
+    Log_hour = now.strftime('%I:%M %p')
+
+    cursor.execute('''
+        INSERT INTO activity_logs (Log_day, Log_date, Log_hour, activity)
+        VALUES (%s, %s, %s, %s)
+    ''', (Log_day, Log_date, Log_hour, activity))
     conn.commit()
     print(f'Logged activity: {activity}')
 
@@ -37,23 +52,24 @@ def popup_window():
     # Calculating current time and previous hour time
     now = datetime.now()
     previous_hour = now - timedelta(hours=1)
-    current_time_str = now.strftime('%Y-%m-%d %H:%M:%S')
-    previous_hour_str = previous_hour.strftime('%H:%M:%S')
+    current_time_str = now.strftime('%Y-%m-%d %I:%M %p')
+    current_day = now.strftime('%A')
+    current_date = now.strftime('%Y-%m-%d')
+    current_hour = now.strftime('%I:%M %p')
+    previous_hour_str = previous_hour.strftime('%I:%M %p')
     
     # Creating the popup window
     popup = tk.Toplevel()
     popup.title('Log Your Activity')
-
-    # Set window size and background color
-    popup.geometry('300x200')  # Width x Height
+    popup.geometry('300x200')  # window size (Width x Height)
     popup.configure(bg='#f0f0f0')  # Light gray background
-
+    
      # Add a frame to organize widgets
     frame = tk.Frame(popup, bg='#f0f0f0')
     frame.pack(padx=20, pady=20, expand=True)
 
     # Displaying the current date and time at the top
-    time_label = tk.Label(frame, text=f'Current Time: {current_time_str}',
+    time_label = tk.Label(frame, text=f'{current_date} - {current_day} \n {current_hour}',
                           font=('Helvetica', 18, 'bold'),
                           bg='#f0f0f0',
                           fg='#333333')  # Dark gray text
@@ -66,7 +82,7 @@ def popup_window():
     img_label.pack(pady=(0, 10))
 
     # Adding a label with custom font and color
-    label = tk.Label(frame, text=f'Enter the Activity you have Done (from {previous_hour_str}):', 
+    label = tk.Label(frame, text=f'Enter the Activity you have Done (from {previous_hour_str} to {current_hour}):', 
                      font=('Helvetica', 12, 'bold'),
                      bg='#f0f0f0',
                      fg='#333333')  # Dark gray text
@@ -95,6 +111,16 @@ def popup_window():
                            command=lambda: on_submit(entry, popup))
     submit_btn.pack()
 
+    # Bind keys to functions for terminating the app
+    def terminate_app(event=None):
+        print('Terminating application.')
+        # popup.destroy()  # Close the popup
+        terminate_event.set()
+        root.quit()  # Exit the main loop
+
+    # Ensure the popup window will also terminate the application
+    popup.protocol('WM_DELETE_WINDOW', terminate_app)
+
 # Timer function to wait and trigger notifications
 def timer():
     while True:
@@ -105,15 +131,25 @@ def timer():
         seconds_to_next_hour = 3600 - time.time() % 3600
         time.sleep(seconds_to_next_hour)
 
+def terminate_app(event=None):
+    print('Terminating application.')
+    terminate_event.set()  # Set the event to terminate the timer thread
+    root.quit()  # Exit the main loop
+
 # main function to run the application
 def main():
-    global conn, cursor
+    global conn, cursor, root, terminate_event
+    
     conn, cursor = db_setup()
-
-    global root
 
     root = tk.Tk()
     root.withdraw() #hides the root window
+
+    terminate_event = threading.Event()  # Event to signal termination
+
+    # Bind keys to functions for terminating the app
+    root.bind('<Escape>', lambda e: terminate_app()) # Bind the Esc key
+    root.bind('<Control-z>', lambda e: terminate_app())  # Bind Ctrl+Z key
 
     try:
         # Starting the timer in a separate thread
@@ -122,9 +158,11 @@ def main():
         # Keeping the main thread running to allow Tkinter to operate
         root.mainloop()
     except KeyboardInterrupt:
+        exit
         print('Application Interrupted and Stopped.')
     finally:
         conn.close()
+        root.quit()
 
 if __name__ =="__main__":
     main()
